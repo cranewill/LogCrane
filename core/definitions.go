@@ -29,9 +29,9 @@ type ILog interface {
 }
 
 type BasePlayerLog struct {
-	Id         int64
-	PlayerId   string
-	ServerId   string
+	Id         int64  `type:"bigint" explain:"pk_id"`
+	PlayerId   string `type:"varchar" length:"255" explain:"玩家id"`
+	ServerId   string `type:"varchar" length:"255" explain:"服务器id"`
 	RollType   int32
 	SaveMethod int32
 	CreateTime int64
