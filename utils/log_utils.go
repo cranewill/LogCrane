@@ -19,11 +19,11 @@ func GetTableName(log *core.ILog, rollType int32) string {
 	var timeStr string
 	switch rollType {
 	case core.RollTypeDay:
-		timeStr = string(year*10000 + int(month)*100 + day)
+		timeStr = strconv.Itoa(year*10000 + int(month)*100 + day)
 	case core.RollTypeMonth:
-		timeStr = string(year*100 + int(month))
+		timeStr = strconv.Itoa(year*100 + int(month))
 	case core.RollTypeYear:
-		timeStr = string(year)
+		timeStr = strconv.Itoa(year)
 	}
 	return logType + "_" + timeStr
 }
