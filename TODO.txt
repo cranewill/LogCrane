@@ -4,15 +4,19 @@
 所有日志都是继承自这两者之一
 
 日志定义方案：
-1.直接手动写每个日志的结构，对应sql结构写在tag里面
-2.通过ProtoBuf或者YAML定义然后写脚本生成代码
+直接手动写每个日志的结构，对应sql结构写在tag里面
+tag定义：
+type：字段对应日志表中列的类型；
+length：字段对应日志表中列的长度，一般varchar类定义，如果没定义默认255。其他类型都不用定义，使用mysql的默认长度；
+explain：字段的注释；
+name：字段对应日志表中列名。如果没有指定，则默认是该字段名小写；
+
 
 调用方法：
-crane.Instance().Execute(ILog)
+crane.Start(serverId) // 启动日志系统
+crane.Instance().Execute(Logger) // 执行日志记录
 
 每种日志都有自己的一个channel，在新请求一个日志时，就会启动一个自己的Goroutine，
-这个Goroutine会一直从自己的channel中取出一个日志
-（考虑是取出后放到一个list？还是有办法隔一段时间从channel取出所有的）
-然后根据记录方式记录日志
+这个Goroutine会一直从自己的channel中取出日志，取出的数量根据定义日志的插入类型是single还是batch决定
 
 执行插入
