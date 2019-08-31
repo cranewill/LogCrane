@@ -13,7 +13,7 @@ var crane *core.LogCrane
 
 // Instance returns the singleton instance of LogCrane
 func Instance() *core.LogCrane {
-	if !crane.Init {
+	if !crane.Running {
 		log.Println("Log service not started!")
 		return nil
 	}
@@ -28,7 +28,7 @@ func Start(serverId, user, pwd, db string) {
 		BatchInsertStatements:  make(map[string]string),
 		CreateStatements:       make(map[string]string),
 		ServerId:               serverId,
-		Init:                   false,
+		Running:                false,
 	}
 	switch def.DataBase {
 	case def.MySql:
@@ -46,7 +46,7 @@ func Start(serverId, user, pwd, db string) {
 	case def.Mongo:
 		// todo ... init mongo
 	}
-	crane.Init = true
+	crane.Running = true
 	def.ServerId = serverId
 	def.BatchNum = 100
 	go crane.Lift()
@@ -55,5 +55,5 @@ func Start(serverId, user, pwd, db string) {
 
 // Stop stops the log system
 func Stop() {
-	_ = crane.MysqlDb.Close()
+	crane.Stop()
 }

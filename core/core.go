@@ -20,7 +20,7 @@ func init() {
 
 type LogCrane struct {
 	MysqlDb                *sql.DB                    // the mysql database handle
-	Init                   bool                       // is initialized
+	Running                bool                       // is running
 	ServerId               string                     // server id
 	LogChannels            map[string]chan def.Logger // logName -> channel. every channel deal one type of log
 	CreateStatements       map[string]string          // logName -> createSql
@@ -34,12 +34,18 @@ func (c *LogCrane) Execute(log def.Logger) {
 		log2.Println("Log system not init!")
 		return
 	}
+	if !c.Running {
+		return
+	}
 	craneChan <- log
 }
 
 // Lift gives every log to its own channel waiting for saving
 func (c *LogCrane) Lift() {
 	for {
+		if !c.Running {
+			return
+		}
 		log := <-craneChan
 		tableName := log.TableName()
 		if _, exist := c.LogChannels[tableName]; !exist {
@@ -54,6 +60,7 @@ func (c *LogCrane) Lift() {
 // Fly accepts a logs channel and deals the recording tasks of this logs according to the save type
 func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, saveType int32) {
 	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
+	cleanTime := time.Now().Unix()
 	for {
 		switch saveType {
 		case def.Single:
@@ -75,16 +82,21 @@ func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, save
 			}
 		case def.Batch:
 			buffSize := len(logChan)
+			dealNum := def.BatchNum
 			if buffSize < def.BatchNum {
-				break
+				dealNum = 0
+			}
+			if time.Now().Unix()-cleanTime >= 5 { // no batch insert over 5 seconds, clean
+				dealNum = buffSize
+				cleanTime = time.Now().Unix()
 			}
 			logs := make([]def.Logger, 0)
-			for i := 0; i < def.BatchNum; i++ {
+			for i := 0; i < dealNum; i++ {
 				log := <-logChan
 				logs = append(logs, log)
 			}
 			insertStmt, exist := c.BatchInsertStatements[tableName]
-			if !exist {
+			if !exist && dealNum > 0 {
 				err := c.checkCreate(logs[0], tableName, tableFullName, rollType)
 				if err != nil {
 					log2.Println("Create table " + tableFullName + " error!")
@@ -132,6 +144,9 @@ func (c *LogCrane) doSingleInsert(log def.Logger, tableFullName, insertStmt stri
 
 // doBatchInsert inserts numbers of logs at one time
 func (c *LogCrane) doBatchInsert(logs []def.Logger, tableFullName, insertStmt string) error {
+	if len(logs) == 0 {
+		return nil
+	}
 	for i := 0; i < len(logs); i++ {
 		log := logs[i]
 		sep := ","
@@ -149,4 +164,37 @@ func (c *LogCrane) doBatchInsert(logs []def.Logger, tableFullName, insertStmt st
 		return err
 	}
 	return nil
+}
+
+// Stop ends all the goroutine and finish all the logs left,
+// use batch insert to finish the logs
+func (c *LogCrane) Stop() {
+	defer c.MysqlDb.Close()
+	for tableName, logChan := range c.LogChannels {
+		size := len(logChan)
+		if size <= 0 {
+			continue
+		}
+		unFinished := make([]def.Logger, size)
+		for i := 0; i < size; i++ {
+			unFinished[i] = <-logChan
+		}
+		rollType := unFinished[0].RollType()
+		tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
+		insertStmt, exist := c.BatchInsertStatements[tableName]
+		if !exist && size > 0 {
+			err := c.checkCreate(unFinished[0], tableName, tableFullName, rollType)
+			if err != nil {
+				log2.Println("Create table " + tableFullName + " error!")
+				continue
+			}
+			insertStmt = utils.GetBatchInsertSql(unFinished[0])
+			c.SingleInsertStatements[tableName] = insertStmt
+		}
+		err := c.doBatchInsert(unFinished, tableFullName, insertStmt)
+		if err != nil {
+			log2.Println("Insert log " + tableFullName + " error!")
+			break
+		}
+	}
 }
