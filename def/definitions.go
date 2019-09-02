@@ -83,3 +83,9 @@ type ColumnDef struct {
 	Value   string // value of this column
 	Explain string // explain of this column
 }
+
+// LogCounter counts the logs number we deal successfully
+type LogCounter struct {
+	TotalCount uint64 // the total count
+	Count      uint64 // the count in one of the monitor tick
+}

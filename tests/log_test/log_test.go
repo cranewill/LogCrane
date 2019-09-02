@@ -3,6 +3,7 @@ package log_test
 import (
 	"github.com/cranewill/logcrane/crane"
 	"github.com/cranewill/logcrane/logs"
+	"math/rand"
 	"strconv"
 	"testing"
 	"time"
@@ -11,9 +12,9 @@ import (
 const ServerId = "TestServer"
 
 func TestCraneLog(t *testing.T) {
-	crane.Start(ServerId, "root", "starunion", "test")
+	crane.Start(ServerId, "root", "starunion", "test", 5)
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		go doLog(i)
 	}
 	//for i := 0; i < 10; i++ {
@@ -26,8 +27,10 @@ func TestCraneLog(t *testing.T) {
 }
 
 func doLog(j int) {
-	for i := 0; i < 5000; i++ {
+	for {
 		oLog := logs.NewOnlineLog("TestPlayerId", strconv.Itoa(j), "127.0.0.1")
 		crane.Instance().Execute(oLog)
+		sc := rand.Int63n(3)
+		time.Sleep(time.Duration(sc) * time.Second)
 	}
 }

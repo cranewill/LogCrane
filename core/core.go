@@ -8,7 +8,9 @@ import (
 	"github.com/cranewill/logcrane/def"
 	"github.com/cranewill/logcrane/utils"
 	_ "github.com/go-sql-driver/mysql"
-	log2 "log"
+	"log"
+	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,64 +24,69 @@ type LogCrane struct {
 	MysqlDb                *sql.DB                    // the mysql database handle
 	Running                bool                       // is running
 	ServerId               string                     // server id
-	LogChannels            map[string]chan def.Logger // logName -> channel. every channel deal one type of log
-	CreateStatements       map[string]string          // logName -> createSql
-	SingleInsertStatements map[string]string          // logName -> insertSql
-	BatchInsertStatements  map[string]string          // logName -> insertSql
+	CreateStatements       map[string]string          // tableName -> createSql
+	SingleInsertStatements map[string]string          // tableName -> insertSql
+	BatchInsertStatements  map[string]string          // tableName -> insertSql
+	LogCounters            map[string]*def.LogCounter // tableName -> logCounter
+	LogChannels            map[string]chan def.Logger // tableName -> channel. every channel deal one type of cLog
 }
 
 // Execute throws the logs and put them into a channel to avoid from concurrent panic
-func (c *LogCrane) Execute(log def.Logger) {
+func (c *LogCrane) Execute(cLog def.Logger) {
 	if c == nil {
-		log2.Println("Log system not init!")
+		log.Println("Log system not init!")
 		return
 	}
 	if !c.Running {
 		return
 	}
-	craneChan <- log
+	craneChan <- cLog
 }
 
-// Lift gives every log to its own channel waiting for saving
+// Lift gives every cLog to its own channel waiting for saving
 func (c *LogCrane) Lift() {
 	for {
 		if !c.Running {
 			return
 		}
-		log := <-craneChan
-		tableName := log.TableName()
+		cLog := <-craneChan
+		tableName := cLog.TableName()
 		if _, exist := c.LogChannels[tableName]; !exist {
 			c.LogChannels[tableName] = make(chan def.Logger, 1024)
-			go c.Fly(c.LogChannels[tableName], tableName, log.RollType(), log.SaveType())
+			c.LogCounters[tableName] = &def.LogCounter{TotalCount: 0, Count: 0}
+			go c.Fly(c.LogChannels[tableName], tableName, cLog.RollType(), cLog.SaveType())
 		}
 		logChan, _ := c.LogChannels[tableName]
-		logChan <- log
+		logChan <- cLog
 	}
 }
 
 // Fly accepts a logs channel and deals the recording tasks of this logs according to the save type
 func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, saveType int32) {
 	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
+	count := c.LogCounters[tableName]
 	cleanTime := time.Now().Unix()
 	for {
 		switch saveType {
 		case def.Single:
-			log := <-logChan
+			cLog := <-logChan
 			insertStmt, exist := c.SingleInsertStatements[tableName]
 			if !exist { // no insert sql, check if this table created
-				err := c.checkCreate(log, tableName, tableFullName, rollType)
+				err := c.checkCreate(cLog, tableName, tableFullName, rollType)
 				if err != nil {
-					log2.Println("Create table " + tableFullName + " error!")
+					log.Println("Create table " + tableFullName + " error!")
 					break
 				}
-				insertStmt = utils.GetInsertSql(log) // do insert
+				insertStmt = utils.GetInsertSql(cLog) // do insert
 				c.SingleInsertStatements[tableName] = insertStmt
 			}
-			err := c.doSingleInsert(log, tableFullName, insertStmt)
+			err := c.doSingleInsert(cLog, tableFullName, insertStmt)
 			if err != nil {
-				log2.Println("Insert log " + tableFullName + " error!")
+				log.Println("Insert cLog " + tableFullName + " error!")
 				break
 			}
+			atomic.AddUint64(&count.Count, 1)
+			atomic.AddUint64(&count.TotalCount, 1)
 		case def.Batch:
 			buffSize := len(logChan)
 			dealNum := def.BatchNum
@@ -92,14 +99,14 @@ func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, save
 			}
 			logs := make([]def.Logger, 0)
 			for i := 0; i < dealNum; i++ {
-				log := <-logChan
-				logs = append(logs, log)
+				cLog := <-logChan
+				logs = append(logs, cLog)
 			}
 			insertStmt, exist := c.BatchInsertStatements[tableName]
 			if !exist && dealNum > 0 {
 				err := c.checkCreate(logs[0], tableName, tableFullName, rollType)
 				if err != nil {
-					log2.Println("Create table " + tableFullName + " error!")
+					log.Println("Create table " + tableFullName + " error!")
 					break
 				}
 				insertStmt = utils.GetBatchInsertSql(logs[0])
@@ -107,18 +114,20 @@ func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, save
 			}
 			err := c.doBatchInsert(logs, tableFullName, insertStmt)
 			if err != nil {
-				log2.Println("Insert log " + tableFullName + " error!")
+				log.Println("Insert cLog " + tableFullName + " error!")
 				break
 			}
+			atomic.AddUint64(&count.Count, uint64(dealNum))
+			atomic.AddUint64(&count.TotalCount, uint64(dealNum))
 		}
 	}
 }
 
 // checkCreate creates the table
-func (c *LogCrane) checkCreate(log def.Logger, tableName, tableFullName string, rollType int32) error {
+func (c *LogCrane) checkCreate(cLog def.Logger, tableName, tableFullName string, rollType int32) error {
 	createStmt, exist := c.CreateStatements[tableName]
 	if !exist { // not created, do create
-		createStmt = utils.GetCreateSql(log)
+		createStmt = utils.GetCreateSql(cLog)
 		_, err := c.MysqlDb.Exec(fmt.Sprintf(createStmt, tableFullName))
 		if err != nil {
 			return err
@@ -128,15 +137,15 @@ func (c *LogCrane) checkCreate(log def.Logger, tableName, tableFullName string, 
 	return nil
 }
 
-// doSingleInsert inserts a single log
-func (c *LogCrane) doSingleInsert(log def.Logger, tableFullName, insertStmt string) error {
+// doSingleInsert inserts a single cLog
+func (c *LogCrane) doSingleInsert(cLog def.Logger, tableFullName, insertStmt string) error {
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-	values := utils.GetInsertValues(log)
+	values := utils.GetInsertValues(cLog)
 	preparedStmt := insertStmt + "(" + values + ");"
 	_, err := c.MysqlDb.ExecContext(ctx, fmt.Sprintf(preparedStmt, tableFullName))
 	if err != nil {
 		failSql := insertStmt
-		log2.Println(failSql)
+		log.Println(failSql)
 		return err
 	}
 	return nil
@@ -148,22 +157,36 @@ func (c *LogCrane) doBatchInsert(logs []def.Logger, tableFullName, insertStmt st
 		return nil
 	}
 	for i := 0; i < len(logs); i++ {
-		log := logs[i]
+		cLog := logs[i]
 		sep := ","
 		if i == len(logs)-1 {
 			sep = ""
 		}
-		insertStmt += "(" + utils.GetInsertValues(log) + ")" + sep
+		insertStmt += "(" + utils.GetInsertValues(cLog) + ")" + sep
 	}
 	insertStmt = fmt.Sprintf(insertStmt, tableFullName) + ";"
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	_, err := c.MysqlDb.ExecContext(ctx, insertStmt)
 	if err != nil {
 		failSql := insertStmt
-		log2.Println(failSql)
+		log.Println(failSql)
 		return err
 	}
 	return nil
+}
+
+// Monitor creates a time ticker with  duration, and prints the monitor log
+// of the log system every tick
+func (c *LogCrane) Monitor(duration time.Duration) {
+	t := time.NewTicker(duration)
+	for range t.C {
+		for tableName, counter := range c.LogCounters {
+			tCount := &counter.TotalCount
+			count := &counter.Count
+			log.Println(tableName + ": New " + strconv.Itoa(int(atomic.LoadUint64(count))) + ", Total " + strconv.Itoa(int(atomic.LoadUint64(tCount))))
+			counter.Count = 0
+		}
+	}
 }
 
 // Stop ends all the goroutine and finish all the logs left,
@@ -185,7 +208,7 @@ func (c *LogCrane) Stop() {
 		if !exist && size > 0 {
 			err := c.checkCreate(unFinished[0], tableName, tableFullName, rollType)
 			if err != nil {
-				log2.Println("Create table " + tableFullName + " error!")
+				log.Println("Create table " + tableFullName + " error!")
 				continue
 			}
 			insertStmt = utils.GetBatchInsertSql(unFinished[0])
@@ -193,7 +216,7 @@ func (c *LogCrane) Stop() {
 		}
 		err := c.doBatchInsert(unFinished, tableFullName, insertStmt)
 		if err != nil {
-			log2.Println("Insert log " + tableFullName + " error!")
+			log.Println("Insert cLog " + tableFullName + " error!")
 			break
 		}
 	}

@@ -33,6 +33,6 @@ func (log OnlineLog) RollType() int32 {
 }
 
 func (log OnlineLog) SaveType() int32 {
-	//return def.Single
-	return def.Batch
+	return def.Single
+	//return def.Batch
 }
