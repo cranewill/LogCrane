@@ -41,9 +41,10 @@ const (
 const DataBase = MySql
 
 const (
-	NamePkId     = "pk_id"
-	NameServerId = "server_id"
-	NameSaveTime = "save_time"
+	NamePkId       = "pk_id"
+	NameServerId   = "server_id"
+	NameCreateTime = "create_time"
+	NameSaveTime   = "save_time"
 )
 
 var ServerId string

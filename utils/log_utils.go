@@ -140,14 +140,25 @@ func GetCreateSql(log def.Logger) string {
 	sqlFormer := "CREATE TABLE IF NOT EXISTS `%s`\n "
 	sqlBack := "( %sPRIMARY KEY (`%s`)\n ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	var fieldsStr, pkIdStr string
+	var createTimeTemp, saveTimeTemp string
 	fields := GetFields(log)
 	for i := 0; i < len(fields); i++ {
 		field := fields[i]
-		fieldsStr += GetFieldDefString(field)
+		fieldStr := GetFieldDefString(field)
 		if strings.ToLower(field.Name) == def.NamePkId {
 			pkIdStr = strings.ToLower(field.Name)
 		}
+		if strings.ToLower(field.Name) == def.NameCreateTime {
+			createTimeTemp = fieldStr
+			continue
+		}
+		if strings.ToLower(field.Name) == def.NameSaveTime {
+			saveTimeTemp = fieldStr
+			continue
+		}
+		fieldsStr += fieldStr
 	}
+	fieldsStr += createTimeTemp + saveTimeTemp
 	return sqlFormer + fmt.Sprintf(sqlBack, fieldsStr, pkIdStr)
 }
 
