@@ -45,6 +45,7 @@ const (
 	NameServerId   = "server_id"
 	NameCreateTime = "create_time"
 	NameSaveTime   = "save_time"
+	NameActionId   = "action_id"
 )
 
 var ServerId string
@@ -65,6 +66,7 @@ type BasePlayerLog struct {
 	ServerId   string `type:"varchar" length:"255" explain:"服务器id" name:"server_id"`
 	CreateTime int64  `type:"bigint" explain:"创建时间" name:"create_time"`
 	SaveTime   int64  `type:"bigint" explain:"保存时间" name:"save_time"`
+	ActionId   string `type:"varchar" length:"255" explain:"行为id" name:"action_id"`
 }
 
 // BasePlayerLog contains the basic server log's attributes, all the server logs should extend of it
@@ -74,6 +76,7 @@ type BaseServerLog struct {
 	ServerId   string `type:"varchar" length:"255" explain:"服务器id" name:"server_id"`
 	CreateTime int64  `type:"bigint" explain:"创建时间" name:"create_time"`
 	SaveTime   int64  `type:"bigint" explain:"保存时间" name:"save_time"`
+	ActionId   string `type:"varchar" length:"255" explain:"行为id" name:"action_id"`
 }
 
 // ColumnDef defines the field info of logs, and it helps to build CREATE and INSERT sql statements

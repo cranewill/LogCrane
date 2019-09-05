@@ -28,7 +28,7 @@ func TestCraneLog(t *testing.T) {
 
 func doLog(j int) {
 	for {
-		oLog := logs.NewOnlineLog("TestPlayerId", strconv.Itoa(j), "127.0.0.1")
+		oLog := logs.NewOnlineLog("TestPlayerId", strconv.Itoa(j), "127.0.0.1", "test_action_id")
 		crane.Instance().Execute(oLog)
 		sc := rand.Int63n(3)
 		time.Sleep(time.Duration(sc) * time.Second)

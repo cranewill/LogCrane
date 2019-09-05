@@ -13,11 +13,12 @@ type OnlineLog struct {
 }
 
 // NewOnlineLog constructs a new OnlineLog
-func NewOnlineLog(playerId, source, ip string) OnlineLog {
+func NewOnlineLog(playerId, source, ip, actionId string) OnlineLog {
 	return OnlineLog{
 		Base: def.BasePlayerLog{
 			PlayerId:   playerId,
 			CreateTime: time.Now().Unix(),
+			ActionId:   actionId,
 		},
 		Source: source,
 		Ip:     ip,
