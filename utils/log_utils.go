@@ -38,18 +38,24 @@ func GetTableFullName(log def.Logger, rollType int32) string {
 }
 
 // GetFields returns a slice contains logs's every attributes table column def from memory.
-func GetFields(log interface{}) []def.ColumnDef {
+// If this is called to construct the field part of sql statement, it returns from memory.
+// Otherwise get attributes from log itself.
+func GetFields(log interface{}, onlyDef bool) []def.ColumnDef {
 	typ := reflect.TypeOf(log)
 	logName := typ.Name()
-	_, exist := LogFieldsDefinitions[logName]
-	if !exist {
-		LogFieldsDefinitions[logName] = GetFieldDefs(log)
+	if onlyDef {
+		_, exist := LogFieldsDefinitions[logName]
+		if !exist {
+			LogFieldsDefinitions[logName] = GetFieldDefs(log, true)
+		}
+		return LogFieldsDefinitions[logName]
+	} else {
+		return GetFieldDefs(log, false)
 	}
-	return LogFieldsDefinitions[logName]
 }
 
 // GetFieldDefs returns the all the logs's attributes by reflection
-func GetFieldDefs(log interface{}) []def.ColumnDef {
+func GetFieldDefs(log interface{}, onlyDef bool) []def.ColumnDef {
 	val := reflect.ValueOf(log)
 	typ := reflect.TypeOf(log)
 	fields := make([]def.ColumnDef, 0)
@@ -57,7 +63,7 @@ func GetFieldDefs(log interface{}) []def.ColumnDef {
 		fVal := val.Field(i)
 		fTyp := typ.Field(i)
 		if fVal.Kind() == reflect.Struct {
-			fields = append(fields, GetFields(fVal.Interface())...)
+			fields = append(fields, GetFields(fVal.Interface(), onlyDef)...)
 		} else {
 			field := def.ColumnDef{}
 			tag := fTyp.Tag
@@ -141,7 +147,7 @@ func GetCreateSql(log def.Logger) string {
 	sqlBack := "( %sPRIMARY KEY (`%s`)\n ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	var fieldsStr, pkIdStr string
 	var createTimeTemp, saveTimeTemp, actionIdTemp string
-	fields := GetFields(log)
+	fields := GetFields(log, true)
 	for i := 0; i < len(fields); i++ {
 		field := fields[i]
 		fieldStr := GetFieldDefString(field)
@@ -171,7 +177,7 @@ func GetInsertSql(log def.Logger) string {
 	sqlFormer := "INSERT INTO `%s`"
 	sqlBack := "( %s ) VALUES "
 	var fieldsStr string
-	fields := GetFields(log)
+	fields := GetFields(log, true)
 	for i := 0; i < len(fields); i++ {
 		if strings.ToLower(fields[i].Name) == def.NamePkId {
 			continue
@@ -190,7 +196,7 @@ func GetBatchInsertSql(log def.Logger) string {
 	sqlHead := "INSERT INTO `%s`"
 	sqlBack := "( %s ) VALUES "
 	var fieldsStr string
-	fields := GetFields(log)
+	fields := GetFields(log, false)
 	for i := 0; i < len(fields); i++ {
 		if strings.ToLower(fields[i].Name) == def.NamePkId {
 			continue
@@ -206,7 +212,7 @@ func GetBatchInsertSql(log def.Logger) string {
 
 // GetInsertValues returns the string values in batch insert sql
 func GetInsertValues(log def.Logger) string {
-	fields := GetFieldDefs(log)
+	fields := GetFieldDefs(log, false)
 	valueStrList := make([]string, 0)
 	for j := 0; j < len(fields); j++ {
 		field := fields[j]
@@ -225,7 +231,7 @@ func GetInsertValues(log def.Logger) string {
 // GetPreparedInsertValues returns the slice containing all the values in the same order as the prepared insert sql statement,
 // except PkId
 func GetPreparedInsertValues(log def.Logger) []string {
-	fields := GetFieldDefs(log)
+	fields := GetFieldDefs(log, false)
 	values := make([]string, 0)
 	for i := 0; i < len(fields); i++ {
 		if strings.ToLower(fields[i].Name) == def.NamePkId {
