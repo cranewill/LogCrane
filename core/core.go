@@ -63,37 +63,19 @@ func (c *LogCrane) Lift() {
 
 // Fly accepts a logs channel and deals the recording tasks of this logs according to the save type
 func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, saveType int32) {
-	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
-	count := c.LogCounters[tableName]
 	cleanTime := time.Now().Unix()
 	for {
 		switch saveType {
 		case def.Single:
 			cLog := <-logChan
-			insertStmt, exist := c.SingleInsertStatements[tableName]
-			if !exist { // no insert sql, check if this table created
-				err := c.checkCreate(cLog, tableName, tableFullName, rollType)
-				if err != nil {
-					log.Println("Create table " + tableFullName + " error!")
-					break
-				}
-				insertStmt = utils.GetInsertSql(cLog) // do insert
-				c.SingleInsertStatements[tableName] = insertStmt
-			}
-			err := c.doSingleInsert(cLog, tableFullName, insertStmt)
-			if err != nil {
-				log.Println("Insert cLog " + tableFullName + " error!")
-				break
-			}
-			atomic.AddUint64(&count.Count, 1)
-			atomic.AddUint64(&count.TotalCount, 1)
+			c.doSingle(cLog, tableName, rollType)
 		case def.Batch:
 			buffSize := len(logChan)
 			dealNum := def.BatchNum
 			if buffSize < def.BatchNum {
 				dealNum = 0
 			}
-			if time.Now().Unix()-cleanTime >= 5 { // no batch insert over 5 seconds, clean
+			if time.Now().Unix()-cleanTime >= def.BatchCleanTime { // no batch insert over BatchCleanTime, clean
 				dealNum = buffSize
 				cleanTime = time.Now().Unix()
 			}
@@ -102,25 +84,71 @@ func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, save
 				cLog := <-logChan
 				logs = append(logs, cLog)
 			}
-			insertStmt, exist := c.BatchInsertStatements[tableName]
-			if !exist && dealNum > 0 {
-				err := c.checkCreate(logs[0], tableName, tableFullName, rollType)
-				if err != nil {
-					log.Println("Create table " + tableFullName + " error!")
-					break
-				}
-				insertStmt = utils.GetBatchInsertSql(logs[0])
-				c.SingleInsertStatements[tableName] = insertStmt
-			}
-			err := c.doBatchInsert(logs, tableFullName, insertStmt)
-			if err != nil {
-				log.Println("Insert cLog " + tableFullName + " error!")
-				break
-			}
-			atomic.AddUint64(&count.Count, uint64(dealNum))
-			atomic.AddUint64(&count.TotalCount, uint64(dealNum))
+			c.doBatch(logs, tableName, rollType)
 		}
 	}
+}
+
+// doSingle deals one log recording
+func (c *LogCrane) doSingle(cLog def.Logger, tableName string, rollType int32) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println(tableName, ":")
+			log.Println(err)
+		}
+	}()
+	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
+	count := c.LogCounters[tableName]
+	insertStmt, exist := c.SingleInsertStatements[tableName]
+	if !exist { // no insert sql, check if this table created
+		err := c.checkCreate(cLog, tableName, tableFullName, rollType)
+		if err != nil {
+			log.Println("Create table " + tableFullName + " error!")
+			log.Println(err)
+			return
+		}
+		insertStmt = utils.GetInsertSql(cLog) // do insert
+		c.SingleInsertStatements[tableName] = insertStmt
+	}
+	err := c.doSingleInsert(cLog, tableFullName, insertStmt)
+	if err != nil {
+		log.Println("Insert log " + tableFullName + " error!")
+		log.Println(err)
+		return
+	}
+	atomic.AddUint64(&count.Count, 1)
+	atomic.AddUint64(&count.TotalCount, 1)
+}
+
+// doBatch deals a batch of logs
+func (c *LogCrane) doBatch(logs []def.Logger, tableName string, rollType int32) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println(tableName, ":")
+			log.Println(err)
+		}
+	}()
+	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
+	count := c.LogCounters[tableName]
+	insertStmt, exist := c.BatchInsertStatements[tableName]
+	if !exist && len(logs) > 0 {
+		err := c.checkCreate(logs[0], tableName, tableFullName, rollType)
+		if err != nil {
+			log.Println("Create table " + tableFullName + " error!")
+			log.Println(err)
+			return
+		}
+		insertStmt = utils.GetBatchInsertSql(logs[0])
+		c.SingleInsertStatements[tableName] = insertStmt
+	}
+	err := c.doBatchInsert(logs, tableFullName, insertStmt)
+	if err != nil {
+		log.Println("Insert log " + tableFullName + " error!")
+		log.Println(err)
+		return
+	}
+	atomic.AddUint64(&count.Count, uint64(len(logs)))
+	atomic.AddUint64(&count.TotalCount, uint64(len(logs)))
 }
 
 // checkCreate creates the table
@@ -128,8 +156,10 @@ func (c *LogCrane) checkCreate(cLog def.Logger, tableName, tableFullName string,
 	createStmt, exist := c.CreateStatements[tableName]
 	if !exist { // not created, do create
 		createStmt = utils.GetCreateSql(cLog)
-		_, err := c.MysqlDb.Exec(fmt.Sprintf(createStmt, tableFullName))
+		stmt := fmt.Sprintf(createStmt, tableFullName)
+		_, err := c.MysqlDb.Exec(stmt)
 		if err != nil {
+			log.Println(stmt)
 			return err
 		}
 		c.CreateStatements[tableName] = createStmt
@@ -142,10 +172,10 @@ func (c *LogCrane) doSingleInsert(cLog def.Logger, tableFullName, insertStmt str
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	values := utils.GetInsertValues(cLog)
 	preparedStmt := insertStmt + "(" + values + ");"
-	_, err := c.MysqlDb.ExecContext(ctx, fmt.Sprintf(preparedStmt, tableFullName))
+	stmt := fmt.Sprintf(preparedStmt, tableFullName)
+	_, err := c.MysqlDb.ExecContext(ctx, stmt)
 	if err != nil {
-		failSql := insertStmt
-		log.Println(failSql)
+		log.Println(stmt)
 		return err
 	}
 	return nil
@@ -168,8 +198,7 @@ func (c *LogCrane) doBatchInsert(logs []def.Logger, tableFullName, insertStmt st
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	_, err := c.MysqlDb.ExecContext(ctx, insertStmt)
 	if err != nil {
-		failSql := insertStmt
-		log.Println(failSql)
+		log.Println(insertStmt)
 		return err
 	}
 	return nil

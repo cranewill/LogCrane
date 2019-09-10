@@ -13,6 +13,11 @@ const (
 	Batch  = 2
 )
 
+// Over BatchCleanTime, clean all the logs in the channel buffer
+const (
+	BatchCleanTime = 10
+)
+
 // Log table split type
 const (
 	RollTypeDay   = 1
