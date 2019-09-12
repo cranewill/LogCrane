@@ -30,6 +30,7 @@ func Start(serverId, user, pwd, db string, monitorTick int32) {
 		SingleInsertStatements: make(map[string]string),
 		BatchInsertStatements:  make(map[string]string),
 		CreateStatements:       make(map[string]string),
+		ExistTables:            make(map[string]string),
 		ServerId:               serverId,
 		Running:                false,
 	}

@@ -27,6 +27,7 @@ type LogCrane struct {
 	CreateStatements       map[string]string          // tableName -> createSql
 	SingleInsertStatements map[string]string          // tableName -> insertSql
 	BatchInsertStatements  map[string]string          // tableName -> insertSql
+	ExistTables            map[string]string          // tableName _. tableFullName
 	LogCounters            map[string]*def.LogCounter // tableName -> logCounter
 	LogChannels            map[string]chan def.Logger // tableName -> channel. every channel deal one type of cLog
 }
@@ -151,18 +152,32 @@ func (c *LogCrane) doBatch(logs []def.Logger, tableName string, rollType int32) 
 	atomic.AddUint64(&count.TotalCount, uint64(len(logs)))
 }
 
-// checkCreate creates the table
+// checkCreate creates the table if the table doesn't exist in db
 func (c *LogCrane) checkCreate(cLog def.Logger, tableName, tableFullName string, rollType int32) error {
-	createStmt, exist := c.CreateStatements[tableName]
-	if !exist { // not created, do create
-		createStmt = utils.GetCreateSql(cLog)
-		stmt := fmt.Sprintf(createStmt, tableFullName)
-		_, err := c.MysqlDb.Exec(stmt)
+	existTable, exist := c.ExistTables[tableName]
+	if !exist || existTable != tableName {
+		var result string
+		err := c.MysqlDb.QueryRow("SHOW TABLES LIKE '" + tableFullName + "';").Scan(&result)
 		if err != nil {
-			log.Println(stmt)
-			return err
+			if err == sql.ErrNoRows { // table not exist in db
+				createStmt, exist := c.CreateStatements[tableName]
+				if !exist {
+					createStmt = utils.GetCreateSql(cLog)
+					c.CreateStatements[tableName] = createStmt
+				}
+				ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+				stmt := fmt.Sprintf(createStmt, tableFullName)
+				_, err := c.MysqlDb.ExecContext(ctx, stmt)
+				log.Println("Create table ", tableFullName)
+				if err != nil {
+					log.Println(stmt)
+					return err
+				}
+			} else {
+				return err
+			}
 		}
-		c.CreateStatements[tableName] = createStmt
+		c.ExistTables[tableName] = tableFullName
 	}
 	return nil
 }

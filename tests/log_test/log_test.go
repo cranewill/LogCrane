@@ -14,9 +14,11 @@ const ServerId = "TestServer"
 func TestCraneLog(t *testing.T) {
 	crane.Start(ServerId, "root", "starunion", "test", 5)
 
-	for i := 0; i < 10; i++ {
-		go doLog(i)
-	}
+	//for i := 0; i < 10; i++ {
+	//	go doLog(i)
+	//}
+	oLog := logs.NewOnlineLog("TestPlayerId", "ss", "127.0.0.1", "sdfsdfsd")
+	crane.Instance().Execute(oLog)
 	//for i := 0; i < 10; i++ {
 	//	oLog := logs.NewOnlineLog("TestPlayerId", strconv.Itoa(i), "127.0.0.1")
 	//	crane.Instance().Execute(oLog)
