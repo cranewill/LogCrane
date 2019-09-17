@@ -2,6 +2,7 @@
 package core
 
 import (
+	"container/list"
 	"context"
 	"database/sql"
 	"fmt"
@@ -64,28 +65,24 @@ func (c *LogCrane) Lift() {
 
 // Fly accepts a logs channel and deals the recording tasks of this logs according to the save type
 func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, saveType int32) {
-	cleanTime := time.Now().Unix()
+	queue := list.New()
 	for {
 		switch saveType {
 		case def.Single:
 			cLog := <-logChan
 			c.doSingle(cLog, tableName, rollType)
 		case def.Batch:
-			buffSize := len(logChan)
-			dealNum := def.BatchNum
-			if buffSize < def.BatchNum {
-				dealNum = 0
+			select {
+			case clog := <-logChan:
+				queue.PushBack(clog)
+				if queue.Len() >= def.BatchNum {
+					c.doBatch(queue, tableName, rollType)
+					queue.Init()
+				}
+			case <-time.After(5 * time.Second):
+				c.doBatch(queue, tableName, rollType)
+				queue.Init()
 			}
-			if time.Now().Unix()-cleanTime >= def.BatchCleanTime { // no batch insert over BatchCleanTime, clean
-				dealNum = buffSize
-				cleanTime = time.Now().Unix()
-			}
-			logs := make([]def.Logger, 0)
-			for i := 0; i < dealNum; i++ {
-				cLog := <-logChan
-				logs = append(logs, cLog)
-			}
-			c.doBatch(logs, tableName, rollType)
 		}
 	}
 }
@@ -122,7 +119,7 @@ func (c *LogCrane) doSingle(cLog def.Logger, tableName string, rollType int32) {
 }
 
 // doBatch deals a batch of logs
-func (c *LogCrane) doBatch(logs []def.Logger, tableName string, rollType int32) {
+func (c *LogCrane) doBatch(logs *list.List, tableName string, rollType int32) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Println(tableName, ":")
@@ -132,14 +129,14 @@ func (c *LogCrane) doBatch(logs []def.Logger, tableName string, rollType int32) 
 	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
 	count := c.LogCounters[tableName]
 	insertStmt, exist := c.BatchInsertStatements[tableName]
-	if !exist && len(logs) > 0 {
-		err := c.checkCreate(logs[0], tableName, tableFullName, rollType)
+	if !exist && logs.Len() > 0 {
+		err := c.checkCreate(logs.Front().Value.(def.Logger), tableName, tableFullName, rollType)
 		if err != nil {
 			log.Println("Create table " + tableFullName + " error!")
 			log.Println(err)
 			return
 		}
-		insertStmt = utils.GetBatchInsertSql(logs[0])
+		insertStmt = utils.GetBatchInsertSql(logs.Front().Value.(def.Logger))
 		c.SingleInsertStatements[tableName] = insertStmt
 	}
 	err := c.doBatchInsert(logs, tableFullName, insertStmt)
@@ -148,8 +145,8 @@ func (c *LogCrane) doBatch(logs []def.Logger, tableName string, rollType int32) 
 		log.Println(err)
 		return
 	}
-	atomic.AddUint64(&count.Count, uint64(len(logs)))
-	atomic.AddUint64(&count.TotalCount, uint64(len(logs)))
+	atomic.AddUint64(&count.Count, uint64(logs.Len()))
+	atomic.AddUint64(&count.TotalCount, uint64(logs.Len()))
 }
 
 // checkCreate creates the table if the table doesn't exist in db
@@ -197,17 +194,16 @@ func (c *LogCrane) doSingleInsert(cLog def.Logger, tableFullName, insertStmt str
 }
 
 // doBatchInsert inserts numbers of logs at one time
-func (c *LogCrane) doBatchInsert(logs []def.Logger, tableFullName, insertStmt string) error {
-	if len(logs) == 0 {
+func (c *LogCrane) doBatchInsert(logs *list.List, tableFullName, insertStmt string) error {
+	if logs.Len() == 0 {
 		return nil
 	}
-	for i := 0; i < len(logs); i++ {
-		cLog := logs[i]
+	for cLog := logs.Front(); cLog != nil; cLog = cLog.Next() {
 		sep := ","
-		if i == len(logs)-1 {
+		if cLog.Next() == nil {
 			sep = ""
 		}
-		insertStmt += "(" + utils.GetInsertValues(cLog) + ")" + sep
+		insertStmt += "(" + utils.GetInsertValues(cLog.Value.(def.Logger)) + ")" + sep
 	}
 	insertStmt = fmt.Sprintf(insertStmt, tableFullName) + ";"
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
@@ -242,20 +238,21 @@ func (c *LogCrane) Stop() {
 		if size <= 0 {
 			continue
 		}
-		unFinished := make([]def.Logger, size)
+		unFinished := list.New()
 		for i := 0; i < size; i++ {
-			unFinished[i] = <-logChan
+			unFinished.PushBack(<-logChan)
 		}
-		rollType := unFinished[0].RollType()
+		cLog := unFinished.Front().Value.(def.Logger)
+		rollType := cLog.RollType()
 		tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
 		insertStmt, exist := c.BatchInsertStatements[tableName]
 		if !exist && size > 0 {
-			err := c.checkCreate(unFinished[0], tableName, tableFullName, rollType)
+			err := c.checkCreate(cLog, tableName, tableFullName, rollType)
 			if err != nil {
 				log.Println("Create table " + tableFullName + " error!")
 				continue
 			}
-			insertStmt = utils.GetBatchInsertSql(unFinished[0])
+			insertStmt = utils.GetBatchInsertSql(cLog)
 			c.SingleInsertStatements[tableName] = insertStmt
 		}
 		err := c.doBatchInsert(unFinished, tableFullName, insertStmt)

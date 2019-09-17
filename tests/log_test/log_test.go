@@ -18,11 +18,11 @@ func TestCraneLog(t *testing.T) {
 	//	go doLog(i)
 	//}
 	oLog := logs.NewOnlineLog("TestPlayerId", "ss", "127.0.0.1", "sdfsdfsd")
-	crane.Instance().Execute(oLog)
-	//for i := 0; i < 10; i++ {
-	//	oLog := logs.NewOnlineLog("TestPlayerId", strconv.Itoa(i), "127.0.0.1")
-	//	crane.Instance().Execute(oLog)
-	//}
+	//crane.Instance().Execute(oLog)
+	for i := 0; i < 1000; i++ {
+		//oLog := logs.NewOnlineLog("TestPlayerId", strconv.Itoa(i), "127.0.0.1")
+		crane.Instance().Execute(oLog)
+	}
 	for {
 		time.Sleep(time.Second)
 	}
