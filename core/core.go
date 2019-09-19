@@ -58,6 +58,9 @@ func (c *LogCrane) Lift() {
 			c.LogCounters[tableName] = &def.LogCounter{TotalCount: 0, Count: 0}
 			go c.Fly(c.LogChannels[tableName], tableName, cLog.RollType(), cLog.SaveType())
 		}
+		if !c.Running {
+			return
+		}
 		logChan, _ := c.LogChannels[tableName]
 		logChan <- cLog
 	}
@@ -97,18 +100,18 @@ func (c *LogCrane) doSingle(cLog def.Logger, tableName string, rollType int32) {
 	}()
 	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
 	count := c.LogCounters[tableName]
-	insertStmt, exist := c.SingleInsertStatements[tableName]
-	if !exist { // no insert sql, check if this table created
+	existTableName, exist := c.ExistTables[tableName]
+	if !exist || existTableName != tableFullName { // not exist in memory, check if this table created
 		err := c.checkCreate(cLog, tableName, tableFullName, rollType)
 		if err != nil {
 			log.Println("Create table " + tableFullName + " error!")
 			log.Println(err)
 			return
 		}
-		insertStmt = utils.GetInsertSql(cLog) // do insert
+		insertStmt := utils.GetInsertSql(cLog) // do insert
 		c.SingleInsertStatements[tableName] = insertStmt
 	}
-	err := c.doSingleInsert(cLog, tableFullName, insertStmt)
+	err := c.doSingleInsert(cLog, tableFullName, c.SingleInsertStatements[tableName])
 	if err != nil {
 		log.Println("Insert log " + tableFullName + " error!")
 		log.Println(err)
@@ -128,18 +131,18 @@ func (c *LogCrane) doBatch(logs *list.List, tableName string, rollType int32) {
 	}()
 	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
 	count := c.LogCounters[tableName]
-	insertStmt, exist := c.BatchInsertStatements[tableName]
-	if !exist && logs.Len() > 0 {
+	existTableName, exist := c.ExistTables[tableName]
+	if !exist && existTableName != tableFullName && logs.Len() > 0 {
 		err := c.checkCreate(logs.Front().Value.(def.Logger), tableName, tableFullName, rollType)
 		if err != nil {
 			log.Println("Create table " + tableFullName + " error!")
 			log.Println(err)
 			return
 		}
-		insertStmt = utils.GetBatchInsertSql(logs.Front().Value.(def.Logger))
-		c.SingleInsertStatements[tableName] = insertStmt
+		insertStmt := utils.GetBatchInsertSql(logs.Front().Value.(def.Logger))
+		c.BatchInsertStatements[tableName] = insertStmt
 	}
-	err := c.doBatchInsert(logs, tableFullName, insertStmt)
+	err := c.doBatchInsert(logs, tableFullName, c.BatchInsertStatements[tableName])
 	if err != nil {
 		log.Println("Insert log " + tableFullName + " error!")
 		log.Println(err)
@@ -151,31 +154,28 @@ func (c *LogCrane) doBatch(logs *list.List, tableName string, rollType int32) {
 
 // checkCreate creates the table if the table doesn't exist in db
 func (c *LogCrane) checkCreate(cLog def.Logger, tableName, tableFullName string, rollType int32) error {
-	existTable, exist := c.ExistTables[tableName]
-	if !exist || existTable != tableName {
-		var result string
-		err := c.MysqlDb.QueryRow("SHOW TABLES LIKE '" + tableFullName + "';").Scan(&result)
-		if err != nil {
-			if err == sql.ErrNoRows { // table not exist in db
-				createStmt, exist := c.CreateStatements[tableName]
-				if !exist {
-					createStmt = utils.GetCreateSql(cLog)
-					c.CreateStatements[tableName] = createStmt
-				}
-				ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-				stmt := fmt.Sprintf(createStmt, tableFullName)
-				_, err := c.MysqlDb.ExecContext(ctx, stmt)
-				log.Println("Create table ", tableFullName)
-				if err != nil {
-					log.Println(stmt)
-					return err
-				}
-			} else {
+	var result string
+	err := c.MysqlDb.QueryRow("SHOW TABLES LIKE '" + tableFullName + "';").Scan(&result)
+	if err != nil {
+		if err == sql.ErrNoRows { // table not exist in db
+			createStmt, exist := c.CreateStatements[tableName]
+			if !exist {
+				createStmt = utils.GetCreateSql(cLog)
+				c.CreateStatements[tableName] = createStmt
+			}
+			ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+			stmt := fmt.Sprintf(createStmt, tableFullName)
+			_, err := c.MysqlDb.ExecContext(ctx, stmt)
+			log.Println("Create table ", tableFullName)
+			if err != nil {
+				log.Println(stmt)
 				return err
 			}
+		} else {
+			return err
 		}
-		c.ExistTables[tableName] = tableFullName
 	}
+	c.ExistTables[tableName] = tableFullName
 	return nil
 }
 
@@ -232,7 +232,7 @@ func (c *LogCrane) Monitor(duration time.Duration) {
 // Stop ends all the goroutine and finish all the logs left,
 // use batch insert to finish the logs
 func (c *LogCrane) Stop() {
-	defer c.MysqlDb.Close()
+	//defer c.MysqlDb.Close()
 	for tableName, logChan := range c.LogChannels {
 		size := len(logChan)
 		if size <= 0 {
@@ -245,17 +245,17 @@ func (c *LogCrane) Stop() {
 		cLog := unFinished.Front().Value.(def.Logger)
 		rollType := cLog.RollType()
 		tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
-		insertStmt, exist := c.BatchInsertStatements[tableName]
-		if !exist && size > 0 {
+		existTableName, exist := c.ExistTables[tableName]
+		if !exist && existTableName != tableFullName && size > 0 {
 			err := c.checkCreate(cLog, tableName, tableFullName, rollType)
 			if err != nil {
 				log.Println("Create table " + tableFullName + " error!")
 				continue
 			}
-			insertStmt = utils.GetBatchInsertSql(cLog)
-			c.SingleInsertStatements[tableName] = insertStmt
+			insertStmt := utils.GetBatchInsertSql(cLog)
+			c.BatchInsertStatements[tableName] = insertStmt
 		}
-		err := c.doBatchInsert(unFinished, tableFullName, insertStmt)
+		err := c.doBatchInsert(unFinished, tableFullName, c.BatchInsertStatements[tableName])
 		if err != nil {
 			log.Println("Insert cLog " + tableFullName + " error!")
 			break
