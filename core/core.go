@@ -132,7 +132,7 @@ func (c *LogCrane) doBatch(logs *list.List, tableName string, rollType int32) {
 	tableFullName := utils.GetTableFullNameByTableName(tableName, rollType)
 	count := c.LogCounters[tableName]
 	existTableName, exist := c.ExistTables[tableName]
-	if !exist && existTableName != tableFullName && logs.Len() > 0 {
+	if (!exist || existTableName != tableFullName) && logs.Len() > 0 {
 		err := c.checkCreate(logs.Front().Value.(def.Logger), tableName, tableFullName, rollType)
 		if err != nil {
 			log.Println("Create table " + tableFullName + " error!")
