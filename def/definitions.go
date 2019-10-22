@@ -11,6 +11,7 @@ const (
 const (
 	Single = 1
 	Batch  = 2
+	Update = 3
 )
 
 // Over BatchCleanTime, clean all the logs in the channel buffer
@@ -20,6 +21,7 @@ const (
 
 // Log table split type
 const (
+	Never         = 0
 	RollTypeDay   = 1
 	RollTypeMonth = 2
 	RollTypeYear  = 3
@@ -47,6 +49,7 @@ const DataBase = MySql
 
 const (
 	NamePkId       = "pk_id"
+	NamePlayerId   = "player_id"
 	NameServerId   = "server_id"
 	NameCreateTime = "create_time"
 	NameSaveTime   = "save_time"

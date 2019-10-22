@@ -28,6 +28,7 @@ type LogCrane struct {
 	CreateStatements       map[string]string          // tableName -> createSql
 	SingleInsertStatements map[string]string          // tableName -> insertSql
 	BatchInsertStatements  map[string]string          // tableName -> insertSql
+	UpdateStatements       map[string]string          // table -> updateSql
 	ExistTables            map[string]string          // tableName _. tableFullName
 	LogCounters            map[string]*def.LogCounter // tableName -> logCounter
 	LogChannels            map[string]chan def.Logger // tableName -> channel. every channel deal one type of cLog
@@ -84,6 +85,18 @@ func (c *LogCrane) Fly(logChan chan def.Logger, tableName string, rollType, save
 				}
 			case <-time.After(5 * time.Second):
 				c.doBatch(queue, tableName, rollType)
+				queue.Init()
+			}
+		case def.Update:
+			select {
+			case clog := <-logChan:
+				queue.PushBack(clog)
+				if queue.Len() >= def.BatchNum {
+					c.doUpdate(queue, tableName)
+					queue.Init()
+				}
+			case <-time.After(5 * time.Second):
+				c.doUpdate(queue, tableName)
 				queue.Init()
 			}
 		}
@@ -152,6 +165,37 @@ func (c *LogCrane) doBatch(logs *list.List, tableName string, rollType int32) {
 	atomic.AddUint64(&count.TotalCount, uint64(logs.Len()))
 }
 
+// doUpdate updates logs if they exist in db, insert a new log otherwise
+func (c *LogCrane) doUpdate(logs *list.List, tableName string) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println(tableName, ":")
+			log.Println(err)
+		}
+	}()
+	tableFullName := utils.GetTableFullNameByTableName(tableName, def.Never)
+	count := c.LogCounters[tableName]
+	existTableName, exist := c.ExistTables[tableName]
+	if (!exist || existTableName != tableFullName) && logs.Len() > 0 {
+		err := c.checkCreate(logs.Front().Value.(def.Logger), tableName, tableFullName, def.Never)
+		if err != nil {
+			log.Println("Create table " + tableFullName + " error!")
+			log.Println(err)
+			return
+		}
+		stmt := utils.GetUpdateSql(logs)
+		c.UpdateStatements[tableName] = stmt
+	}
+	err := c.doUpdateInsert(logs, tableFullName, c.UpdateStatements[tableName])
+	if err != nil {
+		log.Println("Update-Insert log " + tableFullName + " error!")
+		log.Println(err)
+		return
+	}
+	atomic.AddUint64(&count.Count, uint64(logs.Len()))
+	atomic.AddUint64(&count.TotalCount, uint64(logs.Len()))
+}
+
 // checkCreate creates the table if the table doesn't exist in db
 func (c *LogCrane) checkCreate(cLog def.Logger, tableName, tableFullName string, rollType int32) error {
 	var result string
@@ -160,8 +204,13 @@ func (c *LogCrane) checkCreate(cLog def.Logger, tableName, tableFullName string,
 		if err == sql.ErrNoRows { // table not exist in db
 			createStmt, exist := c.CreateStatements[tableName]
 			if !exist {
-				createStmt = utils.GetCreateSql(cLog)
-				c.CreateStatements[tableName] = createStmt
+				if rollType == def.Never {
+					createStmt = utils.GetPlayerIdPKCreateSql(cLog)
+					c.CreateStatements[tableName] = createStmt
+				} else {
+					createStmt = utils.GetCreateSql(cLog)
+					c.CreateStatements[tableName] = createStmt
+				}
 			}
 			ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 			stmt := fmt.Sprintf(createStmt, tableFullName)
@@ -210,6 +259,21 @@ func (c *LogCrane) doBatchInsert(logs *list.List, tableFullName, insertStmt stri
 	_, err := c.MysqlDb.ExecContext(ctx, insertStmt)
 	if err != nil {
 		log.Println(insertStmt)
+		return err
+	}
+	return nil
+}
+
+// doUpdateInsert executes update
+func (c *LogCrane) doUpdateInsert(logs *list.List, tableFullName, updateStmt string) error {
+	if logs.Len() == 0 {
+		return nil
+	}
+	updateStmt = fmt.Sprintf(updateStmt, tableFullName) + ";"
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err := c.MysqlDb.ExecContext(ctx, updateStmt)
+	if err != nil {
+		log.Println(updateStmt)
 		return err
 	}
 	return nil

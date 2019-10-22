@@ -2,6 +2,7 @@
 package utils
 
 import (
+	"container/list"
 	"fmt"
 	"github.com/cranewill/logcrane/def"
 	log2 "log"
@@ -22,6 +23,8 @@ func GetTableFullNameByTableName(tableName string, rollType int32) string {
 	year, month, day := time.Now().Date()
 	var timeStr string
 	switch rollType {
+	case def.Never:
+		return tableName
 	case def.RollTypeDay:
 		timeStr = strconv.Itoa(year*10000 + int(month)*100 + day)
 	case def.RollTypeMonth:
@@ -172,6 +175,34 @@ func GetCreateSql(log def.Logger) string {
 	return sqlFormer + fmt.Sprintf(sqlBack, fieldsStr, pkIdStr)
 }
 
+// Create the sql statement which use `player_id` as primary key but not `pk_id`
+func GetPlayerIdPKCreateSql(log def.Logger) string {
+	sqlFormer := "CREATE TABLE IF NOT EXISTS `%s`\n "
+	sqlBack := "( %sPRIMARY KEY (`" + def.NamePlayerId + "`)\n ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	var fieldsStr string
+	var createTimeTemp, saveTimeTemp, actionIdTemp string
+	fields := GetFields(log, true)
+	for i := 0; i < len(fields); i++ {
+		field := fields[i]
+		fieldStr := GetFieldDefString(field)
+		if strings.ToLower(field.Name) == def.NameCreateTime {
+			createTimeTemp = fieldStr
+			continue
+		}
+		if strings.ToLower(field.Name) == def.NameSaveTime {
+			saveTimeTemp = fieldStr
+			continue
+		}
+		if strings.ToLower(field.Name) == def.NameActionId {
+			actionIdTemp = fieldStr
+			continue
+		}
+		fieldsStr += fieldStr
+	}
+	fieldsStr += createTimeTemp + saveTimeTemp + actionIdTemp
+	return sqlFormer + fmt.Sprintf(sqlBack, fieldsStr)
+}
+
 // GetInsertSql returns the INSERT sql prepared statement of the logs
 func GetInsertSql(log def.Logger) string {
 	sqlFormer := "INSERT INTO `%s`"
@@ -226,6 +257,42 @@ func GetInsertValues(log def.Logger) string {
 		valueStrList = append(valueStrList, value)
 	}
 	return strings.Join(valueStrList, ",")
+}
+
+// GetUpdateSql returns the update sql statement
+func GetUpdateSql(logs *list.List) string {
+	sqlHead := "INSERT INTO `%s`"
+	sqlBack := "( %s ) VALUES "
+	var fieldsStr string
+	fields := GetFields(logs.Front().Value.(def.Logger), false)
+	for i := 0; i < len(fields); i++ {
+		if strings.ToLower(fields[i].Name) == def.NamePkId {
+			continue
+		}
+		sep := ","
+		if i >= len(fields)-1 {
+			sep = ""
+		}
+		fieldsStr += "`" + fields[i].Name + "`" + sep
+	}
+	sqlHead = sqlHead + fmt.Sprintf(sqlBack, fieldsStr)
+	for v := logs.Front(); v != nil; v = v.Next() {
+		log := v.Value.(def.Logger)
+		values := GetInsertValues(log)
+		sqlHead = sqlHead + "(" + values + ")"
+		if v.Next() != nil {
+			sqlHead += ","
+		} else {
+			sqlHead += " ON DUPLICATE KEY UPDATE "
+		}
+	}
+	for i, field := range fields {
+		sqlHead += "`" + field.Name + "`" + "=VALUES(`" + field.Name + "`)"
+		if i != len(fields)-1 {
+			sqlHead += ","
+		}
+	}
+	return sqlHead
 }
 
 // GetPreparedInsertValues returns the slice containing all the values in the same order as the prepared insert sql statement,

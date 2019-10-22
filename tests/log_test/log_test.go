@@ -14,17 +14,27 @@ const ServerId = "TestServer"
 func TestCraneLog(t *testing.T) {
 	crane.Start(ServerId, "root", "starunion", "test", 5)
 
-	//for i := 0; i < 10; i++ {
-	//	go doLog(i)
-	//}
 	oLog := logs.NewOnlineLog("TestPlayerId", "ss", "127.0.0.1", "sdfsdfsd")
-	//crane.Instance().Execute(oLog)
 	for i := 0; i < 1000; i++ {
-		//oLog := logs.NewOnlineLog("TestPlayerId", strconv.Itoa(i), "127.0.0.1")
 		crane.Instance().Execute(oLog)
 	}
 	for {
 		time.Sleep(time.Second)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	crane.Start(ServerId, "root", "starunion", "test", 5)
+
+	for i := 0; i < 1000; i++ {
+		id := rand.Int31n(1000)
+		randStr := strconv.Itoa(int(id))
+		pLog := logs.NewPlayerInfo(randStr, "server"+randStr, "location"+randStr, "1"+randStr, id, time.Now().Unix())
+
+		crane.Instance().Execute(pLog)
+	}
+	for {
+		time.Sleep(time.Second * 3)
 	}
 }
 

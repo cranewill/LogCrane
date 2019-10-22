@@ -29,6 +29,7 @@ func Start(serverId, user, pwd, db string, monitorTick int32) {
 		LogCounters:            make(map[string]*def.LogCounter),
 		SingleInsertStatements: make(map[string]string),
 		BatchInsertStatements:  make(map[string]string),
+		UpdateStatements:       make(map[string]string),
 		CreateStatements:       make(map[string]string),
 		ExistTables:            make(map[string]string),
 		ServerId:               serverId,
