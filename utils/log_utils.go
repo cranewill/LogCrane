@@ -222,6 +222,53 @@ func GetCustomizedIndexCreateSql(log def.Logger) string {
 	return sqlFormer + fmt.Sprintf(sqlValue, fieldsStr) + fmt.Sprintf(sqlTail, indexStr)
 }
 
+// GetNewCreateSql is the new create sql statement function. It allows you
+// to customize primary key and normal key (Attention: If there has been 'pk_id'
+// column, it will use 'pk_id' as primary key and overlook the definition in tags).
+func GetNewCreateSql(log def.Logger) string {
+	sqlFormer := "CREATE TABLE IF NOT EXISTS `%s`\n "
+	sqlValue := "( %s "
+	sqlTail := "%s) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	have_pkId := false
+	var fieldsStr, indexStr, pkIdStr string
+	var createTimeTemp, saveTimeTemp, actionIdTemp string
+	fields := GetFields(log, true)
+	for i := 0; i < len(fields); i++ {
+		field := fields[i]
+		fieldStr := GetFieldDefString(field)
+		if strings.ToLower(field.Name) == def.NamePkId {
+			pkIdStr = "PRIMARY KEY (`" + field.Name + "`),\n"
+			have_pkId = true
+		}
+		if strings.ToLower(field.Name) == def.NameCreateTime {
+			createTimeTemp = fieldStr
+			continue
+		}
+		if strings.ToLower(field.Name) == def.NameSaveTime {
+			saveTimeTemp = fieldStr
+			continue
+		}
+		if strings.ToLower(field.Name) == def.NameActionId {
+			actionIdTemp = fieldStr
+			continue
+		}
+		if !have_pkId && field.Index == def.VIndexTypePK { // if we didn't define `pk_id` in log, we use customized primary key in tag
+			pkIdStr = "PRIMARY KEY (`" + field.Name + "`),\n"
+		}
+		if field.Index == def.VIndexTypeKey {
+			indexStr += "KEY (`" + field.Name + "`),\n"
+		}
+		fieldsStr += fieldStr
+	}
+	fieldsStr += createTimeTemp + saveTimeTemp + actionIdTemp
+	indexStr = pkIdStr + indexStr
+	indexStr = strings.TrimSuffix(indexStr, ",\n")
+	if indexStr == "" {
+		fieldsStr = strings.TrimSuffix(fieldsStr, ",\n")
+	}
+	return sqlFormer + fmt.Sprintf(sqlValue, fieldsStr) + fmt.Sprintf(sqlTail, indexStr)
+}
+
 // GetInsertSql returns the INSERT sql prepared statement of the logs
 func GetInsertSql(log def.Logger) string {
 	sqlFormer := "INSERT INTO `%s`"

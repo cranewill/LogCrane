@@ -204,13 +204,8 @@ func (c *LogCrane) checkCreate(cLog def.Logger, tableName, tableFullName string,
 		if err == sql.ErrNoRows { // table not exist in db
 			createStmt, exist := c.CreateStatements[tableName]
 			if !exist {
-				if rollType == def.Never {
-					createStmt = utils.GetCustomizedIndexCreateSql(cLog)
-					c.CreateStatements[tableName] = createStmt
-				} else {
-					createStmt = utils.GetCreateSql(cLog)
-					c.CreateStatements[tableName] = createStmt
-				}
+				createStmt = utils.GetNewCreateSql(cLog)
+				c.CreateStatements[tableName] = createStmt
 			}
 			ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 			stmt := fmt.Sprintf(createStmt, tableFullName)

@@ -78,7 +78,7 @@ type Logger interface {
 // or includes them in it by yourself
 type BasePlayerLog struct {
 	PkId       string `type:"int" explain:"自增主键" name:"pk_id"`
-	PlayerId   string `type:"varchar" length:"255" explain:"玩家id" name:"player_id"`
+	PlayerId   string `type:"varchar" length:"255" explain:"玩家id" name:"player_id" index:"key"`
 	ServerId   string `type:"varchar" length:"255" explain:"服务器id" name:"server_id"`
 	CreateTime int64  `type:"bigint" explain:"创建时间" name:"create_time"`
 	SaveTime   int64  `type:"bigint" explain:"保存时间" name:"save_time"`
