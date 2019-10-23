@@ -205,7 +205,7 @@ func (c *LogCrane) checkCreate(cLog def.Logger, tableName, tableFullName string,
 			createStmt, exist := c.CreateStatements[tableName]
 			if !exist {
 				if rollType == def.Never {
-					createStmt = utils.GetPlayerIdPKCreateSql(cLog)
+					createStmt = utils.GetCustomizedIndexCreateSql(cLog)
 					c.CreateStatements[tableName] = createStmt
 				} else {
 					createStmt = utils.GetCreateSql(cLog)

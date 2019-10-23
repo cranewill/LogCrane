@@ -88,6 +88,14 @@ func GetFieldDefs(log interface{}, onlyDef bool) []def.ColumnDef {
 			if value, ok := tag.Lookup("explain"); ok { // 字段长度
 				field.Explain = value
 			}
+			if value, ok := tag.Lookup("index"); ok { // 索引
+				if value == def.IndexTypePK {
+					field.Index = def.VIndexTypePK
+				}
+				if value == def.IndexTypeKey {
+					field.Index = def.VIndexTypeKey
+				}
+			}
 			switch strings.ToLower(field.Name) { // 字段值
 			case def.NamePkId:
 				break
@@ -175,11 +183,12 @@ func GetCreateSql(log def.Logger) string {
 	return sqlFormer + fmt.Sprintf(sqlBack, fieldsStr, pkIdStr)
 }
 
-// Create the sql statement which use `player_id` as primary key but not `pk_id`
-func GetPlayerIdPKCreateSql(log def.Logger) string {
+// GetCustomizedIndexCreateSql returns the sql statement which use customized primary key and index
+func GetCustomizedIndexCreateSql(log def.Logger) string {
 	sqlFormer := "CREATE TABLE IF NOT EXISTS `%s`\n "
-	sqlBack := "( %sPRIMARY KEY (`" + def.NamePlayerId + "`)\n ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	var fieldsStr string
+	sqlValue := "( %s "
+	sqlTail := "%s) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
+	var fieldsStr, indexStr string
 	var createTimeTemp, saveTimeTemp, actionIdTemp string
 	fields := GetFields(log, true)
 	for i := 0; i < len(fields); i++ {
@@ -197,10 +206,20 @@ func GetPlayerIdPKCreateSql(log def.Logger) string {
 			actionIdTemp = fieldStr
 			continue
 		}
+		if field.Index == def.VIndexTypePK {
+			indexStr += "PRIMARY KEY (`" + field.Name + "`),\n"
+		}
+		if field.Index == def.VIndexTypeKey {
+			indexStr += "KEY (`" + field.Name + "`),\n"
+		}
 		fieldsStr += fieldStr
 	}
 	fieldsStr += createTimeTemp + saveTimeTemp + actionIdTemp
-	return sqlFormer + fmt.Sprintf(sqlBack, fieldsStr)
+	indexStr = strings.TrimSuffix(indexStr, ",\n")
+	if indexStr == "" {
+		fieldsStr = strings.TrimSuffix(fieldsStr, ",\n")
+	}
+	return sqlFormer + fmt.Sprintf(sqlValue, fieldsStr) + fmt.Sprintf(sqlTail, indexStr)
 }
 
 // GetInsertSql returns the INSERT sql prepared statement of the logs

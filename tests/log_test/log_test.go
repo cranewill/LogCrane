@@ -29,7 +29,7 @@ func TestUpdate(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		id := rand.Int31n(1000)
 		randStr := strconv.Itoa(int(id))
-		pLog := logs.NewPlayerInfo(randStr, "server"+randStr, "location"+randStr, "1"+randStr, id, time.Now().Unix())
+		pLog := logs.NewPlayerInfo(randStr, randStr, "server"+randStr, "location"+randStr, "1"+randStr, id, time.Now().Unix())
 
 		crane.Instance().Execute(pLog)
 	}

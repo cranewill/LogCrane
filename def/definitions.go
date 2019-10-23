@@ -56,6 +56,14 @@ const (
 	NameActionId   = "action_id"
 )
 
+const (
+	IndexTypePK  = "primary"
+	IndexTypeKey = "key"
+
+	VIndexTypePK  = 1
+	VIndexTypeKey = 2
+)
+
 var ServerId string
 var BatchNum int
 
@@ -94,6 +102,7 @@ type ColumnDef struct {
 	Length  int32  // length of this column
 	Value   string // value of this column
 	Explain string // explain of this column
+	Index   int32  // is the column index
 }
 
 // LogCounter counts the logs number we deal successfully

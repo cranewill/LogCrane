@@ -6,7 +6,8 @@ import (
 
 type PlayerInfo struct {
 	//Base             def.BasePlayerLog
-	PlayerId         string `type:"varchar" length:"255" explain:"玩家id" name:"player_id"`
+	PlayerId         string `type:"varchar" length:"255" explain:"玩家id" name:"player_id" index:"primary"`
+	SdkPlayerId      string `type:"varchar" length:"255" explain:"玩家id" name:"sdk_player_id" index:"key"`
 	ServerId         string `type:"varchar" length:"255" explain:"服务器id" name:"server_id"`
 	Level            int32  `type:"int" explain:"等级" name:"level"`
 	Location         string `type:"varchar" length:"255" explain:"地区" name:"location"` // varchar(255)	地区
@@ -30,9 +31,10 @@ func (login PlayerInfo) SaveType() int32 {
 	return def.Update
 }
 
-func NewPlayerInfo(playerId, serverId, location, language string, level int32, playerCreateTime int64) PlayerInfo {
+func NewPlayerInfo(playerId, sdkPlayerId, serverId, location, language string, level int32, playerCreateTime int64) PlayerInfo {
 	return PlayerInfo{
 		PlayerId:         playerId,
+		SdkPlayerId:      sdkPlayerId,
 		ServerId:         serverId,
 		Level:            level,
 		Location:         location,
