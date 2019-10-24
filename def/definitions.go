@@ -57,11 +57,7 @@ const (
 )
 
 const (
-	IndexTypePK  = "primary"
-	IndexTypeKey = "key"
-
-	VIndexTypePK  = 1
-	VIndexTypeKey = 2
+	IndexTypePK = "primary"
 )
 
 var ServerId string
@@ -78,8 +74,8 @@ type Logger interface {
 // or includes them in it by yourself
 type BasePlayerLog struct {
 	PkId       string `type:"int" explain:"自增主键" name:"pk_id"`
-	PlayerId   string `type:"varchar" length:"255" explain:"玩家id" name:"player_id" index:"key"`
-	ServerId   string `type:"varchar" length:"255" explain:"服务器id" name:"server_id"`
+	PlayerId   string `type:"varchar" length:"255" explain:"玩家id" name:"player_id" key:"player_id,player_server_id"`
+	ServerId   string `type:"varchar" length:"255" explain:"服务器id" name:"server_id" key:"player_server_id"`
 	CreateTime int64  `type:"bigint" explain:"创建时间" name:"create_time"`
 	SaveTime   int64  `type:"bigint" explain:"保存时间" name:"save_time"`
 	ActionId   string `type:"varchar" length:"255" explain:"行为id" name:"action_id"`
@@ -102,7 +98,7 @@ type ColumnDef struct {
 	Length  int32  // length of this column
 	Value   string // value of this column
 	Explain string // explain of this column
-	Index   int32  // is the column index
+	Index   string // index name
 }
 
 // LogCounter counts the logs number we deal successfully

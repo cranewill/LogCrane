@@ -70,33 +70,28 @@ func GetFieldDefs(log interface{}, onlyDef bool) []def.ColumnDef {
 		} else {
 			field := def.ColumnDef{}
 			tag := fTyp.Tag
-			if value, ok := tag.Lookup("name"); ok { // 字段名
+			if value, ok := tag.Lookup("name"); ok { // field name
 				field.Name = value
 			} else {
 				field.Name = strings.ToLower(fTyp.Name)
 			}
-			if value, ok := tag.Lookup("type"); ok { // 字段类型
+			if value, ok := tag.Lookup("type"); ok { // field type
 				field.Type = value
 			} else {
 				log2.Println("Error def of " + typ.Name() + ". Lack of column DB type!")
 				return fields
 			}
-			if value, ok := tag.Lookup("length"); ok { // 字段长度
+			if value, ok := tag.Lookup("length"); ok { // field length
 				colLen, _ := strconv.Atoi(value)
 				field.Length = int32(colLen)
 			}
-			if value, ok := tag.Lookup("explain"); ok { // 字段长度
+			if value, ok := tag.Lookup("explain"); ok { // field explain
 				field.Explain = value
 			}
-			if value, ok := tag.Lookup("index"); ok { // 索引
-				if value == def.IndexTypePK {
-					field.Index = def.VIndexTypePK
-				}
-				if value == def.IndexTypeKey {
-					field.Index = def.VIndexTypeKey
-				}
+			if value, ok := tag.Lookup("key"); ok { // field index
+				field.Index = value
 			}
-			switch strings.ToLower(field.Name) { // 字段值
+			switch strings.ToLower(field.Name) { // field value
 			case def.NamePkId:
 				break
 			case def.NameServerId:
@@ -152,84 +147,15 @@ func GetFieldDefString(fieldDef def.ColumnDef) string {
 	return fdStr
 }
 
-// GetCreateSql returns the CREATE sql statement of the logs
-func GetCreateSql(log def.Logger) string {
-	sqlFormer := "CREATE TABLE IF NOT EXISTS `%s`\n "
-	sqlBack := "( %sPRIMARY KEY (`%s`)\n ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	var fieldsStr, pkIdStr string
-	var createTimeTemp, saveTimeTemp, actionIdTemp string
-	fields := GetFields(log, true)
-	for i := 0; i < len(fields); i++ {
-		field := fields[i]
-		fieldStr := GetFieldDefString(field)
-		if strings.ToLower(field.Name) == def.NamePkId {
-			pkIdStr = strings.ToLower(field.Name)
-		}
-		if strings.ToLower(field.Name) == def.NameCreateTime {
-			createTimeTemp = fieldStr
-			continue
-		}
-		if strings.ToLower(field.Name) == def.NameSaveTime {
-			saveTimeTemp = fieldStr
-			continue
-		}
-		if strings.ToLower(field.Name) == def.NameActionId {
-			actionIdTemp = fieldStr
-			continue
-		}
-		fieldsStr += fieldStr
-	}
-	fieldsStr += createTimeTemp + saveTimeTemp + actionIdTemp
-	return sqlFormer + fmt.Sprintf(sqlBack, fieldsStr, pkIdStr)
-}
-
-// GetCustomizedIndexCreateSql returns the sql statement which use customized primary key and index
-func GetCustomizedIndexCreateSql(log def.Logger) string {
-	sqlFormer := "CREATE TABLE IF NOT EXISTS `%s`\n "
-	sqlValue := "( %s "
-	sqlTail := "%s) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	var fieldsStr, indexStr string
-	var createTimeTemp, saveTimeTemp, actionIdTemp string
-	fields := GetFields(log, true)
-	for i := 0; i < len(fields); i++ {
-		field := fields[i]
-		fieldStr := GetFieldDefString(field)
-		if strings.ToLower(field.Name) == def.NameCreateTime {
-			createTimeTemp = fieldStr
-			continue
-		}
-		if strings.ToLower(field.Name) == def.NameSaveTime {
-			saveTimeTemp = fieldStr
-			continue
-		}
-		if strings.ToLower(field.Name) == def.NameActionId {
-			actionIdTemp = fieldStr
-			continue
-		}
-		if field.Index == def.VIndexTypePK {
-			indexStr += "PRIMARY KEY (`" + field.Name + "`),\n"
-		}
-		if field.Index == def.VIndexTypeKey {
-			indexStr += "KEY (`" + field.Name + "`),\n"
-		}
-		fieldsStr += fieldStr
-	}
-	fieldsStr += createTimeTemp + saveTimeTemp + actionIdTemp
-	indexStr = strings.TrimSuffix(indexStr, ",\n")
-	if indexStr == "" {
-		fieldsStr = strings.TrimSuffix(fieldsStr, ",\n")
-	}
-	return sqlFormer + fmt.Sprintf(sqlValue, fieldsStr) + fmt.Sprintf(sqlTail, indexStr)
-}
-
 // GetNewCreateSql is the new create sql statement function. It allows you
 // to customize primary key and normal key (Attention: If there has been 'pk_id'
-// column, it will use 'pk_id' as primary key and overlook the definition in tags).
+// column, it will use 'pk_id' as primary key).
 func GetNewCreateSql(log def.Logger) string {
 	sqlFormer := "CREATE TABLE IF NOT EXISTS `%s`\n "
 	sqlValue := "( %s "
 	sqlTail := "%s) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	have_pkId := false
+	havePkId := false
+	combinedKeys := make(map[string][]string)
 	var fieldsStr, indexStr, pkIdStr string
 	var createTimeTemp, saveTimeTemp, actionIdTemp string
 	fields := GetFields(log, true)
@@ -238,7 +164,7 @@ func GetNewCreateSql(log def.Logger) string {
 		fieldStr := GetFieldDefString(field)
 		if strings.ToLower(field.Name) == def.NamePkId {
 			pkIdStr = "PRIMARY KEY (`" + field.Name + "`),\n"
-			have_pkId = true
+			havePkId = true
 		}
 		if strings.ToLower(field.Name) == def.NameCreateTime {
 			createTimeTemp = fieldStr
@@ -252,13 +178,28 @@ func GetNewCreateSql(log def.Logger) string {
 			actionIdTemp = fieldStr
 			continue
 		}
-		if !have_pkId && field.Index == def.VIndexTypePK { // if we didn't define `pk_id` in log, we use customized primary key in tag
-			pkIdStr = "PRIMARY KEY (`" + field.Name + "`),\n"
-		}
-		if field.Index == def.VIndexTypeKey {
-			indexStr += "KEY (`" + field.Name + "`),\n"
+		if field.Index != "" {
+			keys := strings.Split(field.Index, ",")
+			for _, key := range keys {
+				if !havePkId && key == def.IndexTypePK {
+					pkIdStr = "PRIMARY KEY (`" + field.Name + "`),\n"
+				} else {
+					if key == def.IndexTypePK {
+						continue
+					}
+					combinedKeys[key] = append(combinedKeys[key], field.Name)
+				}
+			}
 		}
 		fieldsStr += fieldStr
+	}
+	for key, fields := range combinedKeys {
+		indexStr += "KEY `" + key + "` ("
+		for _, field := range fields {
+			indexStr += "`" + field + "`,"
+		}
+		indexStr = strings.TrimSuffix(indexStr, ",")
+		indexStr += "),\n"
 	}
 	fieldsStr += createTimeTemp + saveTimeTemp + actionIdTemp
 	indexStr = pkIdStr + indexStr
@@ -359,18 +300,4 @@ func GetUpdateSql(logs *list.List) string {
 		}
 	}
 	return sqlHead
-}
-
-// GetPreparedInsertValues returns the slice containing all the values in the same order as the prepared insert sql statement,
-// except PkId
-func GetPreparedInsertValues(log def.Logger) []string {
-	fields := GetFieldDefs(log, false)
-	values := make([]string, 0)
-	for i := 0; i < len(fields); i++ {
-		if strings.ToLower(fields[i].Name) == def.NamePkId {
-			continue
-		}
-		values = append(values, fields[i].Value)
-	}
-	return values
 }

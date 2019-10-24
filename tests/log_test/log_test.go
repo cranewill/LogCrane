@@ -1,8 +1,10 @@
 package log_test
 
 import (
+	"fmt"
 	"github.com/cranewill/logcrane/crane"
 	"github.com/cranewill/logcrane/logs"
+	"github.com/cranewill/logcrane/utils"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -11,10 +13,24 @@ import (
 
 const ServerId = "TestServer"
 
+func TestReflection(t *testing.T) {
+	crane.Start(ServerId, "root", "starunion", "test", 5)
+	start := time.Now().Unix()
+	for i := 0; i < 1000000; i++ {
+		oLog := logs.NewOnlineLog("TestPlayerId", "source", "127.0.0.1", "")
+		insertStmt := utils.GetInsertSql(oLog)
+		values := utils.GetInsertValues(oLog)
+		preparedStmt := insertStmt + "(" + values + ");"
+		_ = preparedStmt
+	}
+	cost := time.Now().Unix() - start
+	fmt.Println(strconv.FormatInt(cost, 10))
+}
+
 func TestCraneLog(t *testing.T) {
 	crane.Start(ServerId, "root", "starunion", "test", 5)
 
-	oLog := logs.NewOnlineLog("TestPlayerId", "ss", "127.0.0.1", "sdfsdfsd")
+	oLog := logs.NewOnlineLog("TestPlayerId", "source", "127.0.0.1", "")
 	for i := 0; i < 1000; i++ {
 		crane.Instance().Execute(oLog)
 	}
