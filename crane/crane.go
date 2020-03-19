@@ -7,6 +7,7 @@ import (
 	"github.com/cranewill/logcrane/core"
 	"github.com/cranewill/logcrane/def"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -24,16 +25,15 @@ func Instance() *core.LogCrane {
 // Start starts LogCrane.
 // if monitorTick > 0, a log monitor will be started and it prints monitor log every tick(second)
 func Start(serverId, user, pwd, db string, monitorTick int32) {
+	if crane != nil {
+		return
+	}
 	crane = &core.LogCrane{
-		LogChannels:            make(map[string]chan def.Logger),
-		LogCounters:            make(map[string]*def.LogCounter),
-		SingleInsertStatements: make(map[string]string),
-		BatchInsertStatements:  make(map[string]string),
-		UpdateStatements:       make(map[string]string),
-		CreateStatements:       make(map[string]string),
-		ExistTables:            make(map[string]string),
-		ServerId:               serverId,
-		Running:                false,
+		LogChannels: make(map[string]chan def.Logger),
+		ServerId:    serverId,
+		Running:     false,
+		Workers:     make(map[string]*core.Worker),
+		Wgp:         &sync.WaitGroup{},
 	}
 	switch def.DataBase {
 	case def.MySql:

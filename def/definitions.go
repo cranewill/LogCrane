@@ -62,6 +62,7 @@ const (
 
 var ServerId string
 var BatchNum int
+var ChannelBuffer int
 
 // Logger is the interface which all the logs MUST implement
 type Logger interface {
